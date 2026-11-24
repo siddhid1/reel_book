@@ -6,6 +6,7 @@ import { creatorRepo } from "../db/repositories.js";
 import { normalizeCreator, ManualDiscoveryProvider } from "../discovery/manual.js";
 import { InstagramGraphDiscoveryProvider } from "../discovery/graph.js";
 import { GeminiFormattingProvider, MockFormattingProvider } from "../formatting/providers.js";
+import { OllamaFormattingProvider } from "../formatting/ollama.js";
 import { GraphMediaProvider, LocalFileMediaProvider, MockMediaProvider, YtDlpMediaProvider } from "../media/provider.js";
 import { commitArchive } from "../markdown/git.js";
 import { processPendingReels } from "../queue/processor.js";
@@ -77,7 +78,7 @@ export async function runAllOnce(db: BetterSQLite3Database, config: AppConfig, o
         db, archiveRoot: config.archiveRoot, creatorId: c.id!, username,
         profileUrl: c.profileUrl!, media: buildMedia(config, username),
         transcriber: opts.transcriber === "gemini" ? new GeminiTranscriptionProvider() : opts.transcriber === "local" ? new LocalWhisperProvider() : new MockTranscriptionProvider(),
-        formatter: opts.formatter === "gemini" ? new GeminiFormattingProvider() : new MockFormattingProvider(),
+        formatter: opts.formatter === "gemini" ? new GeminiFormattingProvider() : opts.formatter === "ollama" ? new OllamaFormattingProvider() : new MockFormattingProvider(),
         workDir: "./tmp/work",
         templatePath: getTemplatePath(config),
         onEvent: log,
