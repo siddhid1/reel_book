@@ -9,3 +9,5 @@ tmp/
 coverage/
 models/
 *.bin
+url.txt
+!url.example.txt
