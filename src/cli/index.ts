@@ -238,7 +238,8 @@ program.command("doctor")
       try { await run(bin, ["-version"]); return "OK"; } catch { return "MISSING"; }
     };
     console.log(`ffmpeg: ${await check("ffmpeg")}`);
-    console.log(`whisper-cpp: ${await check(process.env.WHISPER_BIN ?? "whisper-cpp")} (optional; --transcriber local only)`);
+    const whisperBin = process.env.WHISPER_BIN ?? "whisper-cli";
+    console.log(`whisper: ${await check("whisper-cli")} (binary=${whisperBin}; model=${process.env.WHISPER_MODEL_PATH ?? "./models/ggml-base.bin"}; --transcriber local is free/offline)`);
     const masked = (v: string) => (v ? `${v.slice(0, 4)}…${v.slice(-4)} (${v.length} chars)` : "NOT SET");
     console.log(`GEMINI_API_KEY: ${masked(config.geminiApiKey)} [format=${config.geminiFormatModel} transcribe=${config.geminiTranscribeModel}]`);
     console.log(`GRAPH_ACCESS_TOKEN: ${config.graphAccessToken ? "SET" : "NOT SET"} GRAPH_IG_USER_ID: ${config.graphIgUserId || "NOT SET"}`);

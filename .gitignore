@@ -7,3 +7,5 @@ dist/
 instagram-archive/
 tmp/
 coverage/
+models/
+*.bin

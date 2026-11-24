@@ -6,20 +6,29 @@ import { fetchWithRetry, logGeminiCall } from "../utils/retry.js";
 
 const execFileAsync = promisify(execFile);
 
-/** Local Whisper via `whisper.cpp` main binary or `faster-whisper` python CLI. Free, offline. */
+/** Local Whisper via whisper.cpp (`whisper-cli`) binary. Free, offline, unlimited. */
 export class LocalWhisperProvider implements TranscriptionProvider {
   readonly name = "local-whisper";
-  constructor(private binary = process.env.WHISPER_BIN ?? "whisper-cpp", private model = process.env.WHISPER_MODEL ?? "base") {}
+  constructor(
+    private binary = process.env.WHISPER_BIN ?? "whisper-cli",
+    private modelPath = process.env.WHISPER_MODEL_PATH ?? "./models/ggml-base.bin",
+  ) {}
 
   async transcribe(input: { audioPath: string }) {
+    const { existsSync } = await import("node:fs");
+    if (!existsSync(this.modelPath)) {
+      throw new Error(`Whisper model not found at ${this.modelPath}. Download one, e.g.: cd whisper.cpp && ./models/download-ggml-model.sh base && cp models/ggml-base.bin ./models/ (or set WHISPER_MODEL_PATH)`);
+    }
     try {
-      const { stdout } = await execFileAsync(this.binary, ["-m", this.model, "-f", input.audioPath, "-otxt", "-of", "-"]);
+      const { stdout } = await execFileAsync(this.binary, ["-m", this.modelPath, "-f", input.audioPath, "-otxt", "-of", "-", "-nt", "--no-timestamps"]);
       return { text: stdout.trim() };
     } catch (err) {
-      throw new Error(`Local Whisper failed (${this.binary}). Install whisper.cpp or use --transcriber gemini. Cause: ${(err as Error).message}`);
+      throw new Error(`Local Whisper failed (${this.binary}). Set WHISPER_BIN to your whisper-cli binary. Cause: ${(err as Error).message}`);
     }
   }
 }
+
+/** Deterministic mock for tests / offline runs. */
 
 /**
  * Gemini audio transcription: multimodal model returns VERBATIM transcript.
