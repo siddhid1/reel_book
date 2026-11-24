@@ -123,11 +123,21 @@ pnpm dev sync creator_username --reels bulk.json --media ytdlp --transcriber gem
 ```
 
 ## Gemini notes (your Pro subscription)
-
 - Model defaults are `gemini-3.5-flash` for both formatting and transcription (verified working 2026-11-23; `gemini-2.5-flash` now returns 404 for new API users, `gemini-3.8-flash` was 503-overloaded). Override via `GEMINI_FORMAT_MODEL` / `GEMINI_TRANSCRIBE_MODEL`.
 - API calls retry 429/5xx with exponential backoff and log model + latency + size per call.
 - Transcription: `--transcriber gemini` sends audio with a strict verbatim prompt. Audio must be <20MB inline (reels are fine). For bulk/offline, install `ffmpeg` + `whisper.cpp` (`pnpm dev doctor` tells you what's missing) and use `--transcriber local`.
 - The subscription login itself is not enough — the app needs `GEMINI_API_KEY` from AI Studio, which you have configured.
+
+## Fully free pipeline (no billing): local Whisper + local Ollama
+
+```bash
+ollama serve                      # one-time per boot (background)
+ollama pull qwen2.5:7b-instruct   # one-time ~4.7GB download
+
+pnpm dev sync creator_username --reels bulk.json --media ytdlp --transcriber local --formatter ollama --limit 25 --commit
+```
+
+Transcription runs on whisper.cpp (`./models/ggml-base.bin`, CPU, unlimited), formatting on the local model — $0 and no API quotas anywhere. `pnpm dev doctor` reports ollama status. Quality is below Gemini flash, but every word is real; you can always `reprocess --formatter gemini` later for a polish pass on selected reels.
 
 ## Guarantees
 
