@@ -24,14 +24,18 @@ function ctx() {
   return { config, db };
 }
 
-function buildTranscriber(kind: string) {
+function buildTranscriber(kind: string, model?: string) {
   if (kind === "mock") return new MockTranscriptionProvider();
-  if (kind === "gemini") return new GeminiTranscriptionProvider();
+  if (kind === "gemini") {
+    const cfg = loadConfig();
+    return new GeminiTranscriptionProvider(cfg.geminiApiKey || undefined, model || cfg.geminiTranscribeModel);
+  }
   return new LocalWhisperProvider();
 }
-function buildFormatter(kind: string) {
+function buildFormatter(kind: string, model?: string) {
   if (kind === "mock") return new MockFormattingProvider();
-  return new GeminiFormattingProvider();
+  const cfg = loadConfig();
+  return new GeminiFormattingProvider(cfg.geminiApiKey || undefined, model || cfg.geminiFormatModel);
 }
 
 function readJsonFile<T>(path: string, flag: string): T {
@@ -62,8 +66,11 @@ program.command("sync <username>")
   .option("--ig-user-id <id>", "IG-scoped user id (for --discovery graph)")
   .option("--media <kind>", "auto|local|graph|ytdlp|mock (auto: media-map > graph > mock; ytdlp is explicit opt-in only)", "auto")
   .option("--full", "Ignore checkpoint: full historical rescan", false)
+  .option("--limit <n>", "Process at most N pending reels this run (bulk batches)", "")
+  .option("--transcribe-model <m>", "Override GEMINI_TRANSCRIBE_MODEL for this run", "")
+  .option("--format-model <m>", "Override GEMINI_FORMAT_MODEL for this run", "")
   .option("--commit", "Git-commit new markdown docs in the archive", false)
-  .action(async (username: string, opts: { reels?: string; mediaMap?: string; transcriber: string; formatter: string; discovery: string; igUserId?: string; media: string; full: boolean; commit: boolean }) => {
+  .action(async (username: string, opts: { reels?: string; mediaMap?: string; transcriber: string; formatter: string; discovery: string; igUserId?: string; media: string; full: boolean; limit: string; transcribeModel: string; formatModel: string; commit: boolean }) => {
     const { config, db } = ctx();
     const norm = normalizeCreator(username);
     const creator = await creatorRepo.upsert(db, norm.username, norm.profileUrl);
@@ -91,10 +98,11 @@ program.command("sync <username>")
     const { processed, failed } = await processPendingReels({
       db, archiveRoot: config.archiveRoot, creatorId: creator.id!, username: creator.username!,
       profileUrl: creator.profileUrl!, media,
-      transcriber: buildTranscriber(opts.transcriber),
-      formatter: buildFormatter(opts.formatter),
+      transcriber: buildTranscriber(opts.transcriber, opts.transcribeModel || undefined),
+      formatter: buildFormatter(opts.formatter, opts.formatModel || undefined),
       workDir: "./tmp/work",
       templatePath: getTemplatePath(config),
+      maxReels: opts.limit ? Number(opts.limit) : undefined,
       onEvent: (m) => console.log(m),
     });
     console.log(`Processing: ${processed} completed, ${failed} failed`);
@@ -111,8 +119,11 @@ program.command("retry <username>")
   .option("--media-map <file>", "JSON map reel shortcode/URL -> local media file")
   .option("--transcriber <kind>", "mock|local|gemini", "mock")
   .option("--formatter <kind>", "mock|gemini", "mock")
+  .option("--limit <n>", "Process at most N pending reels this run", "")
+  .option("--transcribe-model <m>", "Override GEMINI_TRANSCRIBE_MODEL for this run", "")
+  .option("--format-model <m>", "Override GEMINI_FORMAT_MODEL for this run", "")
   .option("--commit", "Git-commit new markdown docs in the archive", false)
-  .action(async (username: string, opts: { mediaMap?: string; transcriber: string; formatter: string; commit: boolean }) => {
+  .action(async (username: string, opts: { mediaMap?: string; transcriber: string; formatter: string; limit: string; transcribeModel: string; formatModel: string; commit: boolean }) => {
     const { config, db } = ctx();
     const creator = creatorRepo.getByUsername(db, normalizeCreator(username).username);
     if (!creator?.id) throw new Error("Unknown creator. Run add-creator first.");
@@ -121,10 +132,11 @@ program.command("retry <username>")
     const { processed, failed } = await processPendingReels({
       db, archiveRoot: config.archiveRoot, creatorId: creator.id, username: creator.username!,
       profileUrl: creator.profileUrl!, media,
-      transcriber: buildTranscriber(opts.transcriber),
-      formatter: buildFormatter(opts.formatter),
+      transcriber: buildTranscriber(opts.transcriber, opts.transcribeModel || undefined),
+      formatter: buildFormatter(opts.formatter, opts.formatModel || undefined),
       workDir: "./tmp/work",
       templatePath: getTemplatePath(config),
+      maxReels: opts.limit ? Number(opts.limit) : undefined,
       onEvent: (m) => console.log(m),
     });
     console.log(`Retry: ${processed} completed, ${failed} failed`);
@@ -183,16 +195,17 @@ program.command("reset-reel <username> <mediaId>")
 program.command("reprocess <username>")
   .description("Re-run AI formatting for reels with raw transcripts (e.g. after a prompt change). Never re-transcribes.")
   .option("--formatter <kind>", "mock|gemini", "mock")
+  .option("--format-model <m>", "Override GEMINI_FORMAT_MODEL for this run", "")
   .option("--force", "Reformat even COMPLETED reels", false)
   .option("--limit <n>", "Max reels", "100")
   .option("--commit", "Git-commit updated docs", false)
-  .action(async (username: string, opts: { formatter: string; force: boolean; limit: string; commit: boolean }) => {
+  .action(async (username: string, opts: { formatter: string; formatModel: string; force: boolean; limit: string; commit: boolean }) => {
     const { config, db } = ctx();
     const creator = creatorRepo.getByUsername(db, normalizeCreator(username).username);
     if (!creator?.id) throw new Error("Unknown creator. Run add-creator first.");
     const { reformatted, failed } = await reprocessReels({
       db, creatorId: creator.id, username: creator.username!,
-      formatter: buildFormatter(opts.formatter),
+      formatter: buildFormatter(opts.formatter, opts.formatModel || undefined),
       templatePath: getTemplatePath(config),
       force: opts.force, limit: Number(opts.limit) || 100,
       onEvent: (m) => console.log(m),

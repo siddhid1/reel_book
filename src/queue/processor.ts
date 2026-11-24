@@ -22,10 +22,12 @@ export async function processPendingReels(args: {
   formatter: FormattingProvider;
   workDir: string;
   templatePath?: string | null;
+  maxReels?: number;
   onEvent?: (msg: string) => void;
 }): Promise<{ processed: number; failed: number }> {
-  const { db, archiveRoot, creatorId, username, profileUrl, media, transcriber, formatter, workDir, templatePath, onEvent } = args;
-  const pending = reelRepo.pendingForCreator(db, creatorId);
+  const { db, archiveRoot, creatorId, username, profileUrl, media, transcriber, formatter, workDir, templatePath, maxReels, onEvent } = args;
+  const allPending = reelRepo.pendingForCreator(db, creatorId);
+  const pending = typeof maxReels === "number" ? allPending.slice(0, Math.max(0, maxReels)) : allPending;
   let processed = 0;
   let failed = 0;
 

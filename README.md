@@ -114,6 +114,12 @@ pnpm dev sync creator_username --reels reels.json --commit
 
 # full historical reconciliation (ignores checkpoint, dedup still by media ID)
 pnpm dev sync creator_username --reels reels.json --full
+
+# bulk in controlled batches of 25 (each run commits; resume anytime by re-running)
+pnpm dev sync creator_username --reels bulk.json --media ytdlp --transcriber gemini --formatter gemini --limit 25 --commit
+
+# if a model is overloaded, swap per run without touching .env
+pnpm dev sync creator_username --reels bulk.json --media ytdlp --transcriber gemini --formatter gemini --limit 25 --format-model gemini-3-flash-preview --commit
 ```
 
 ## Gemini notes (your Pro subscription)

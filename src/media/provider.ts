@@ -70,7 +70,18 @@ export class GraphMediaProvider implements MediaProvider {
     if (isAudio(videoPath) || /\.mp3(\?|$)/i.test(detail.media_url)) return { audioPath: videoPath, cleanup: async () => {} };
     const audioPath = join(workDir, `${apiId}-audio.mp3`);
     await extractAudio(videoPath, audioPath);
-    return { audioPath, cleanup: async () => {} };
+    const { unlinkSync, existsSync } = await import("node:fs");
+    return {
+      audioPath,
+      cleanup: async () => {
+        // Downloaded originals are transient; user files (LocalFile) are never touched.
+        for (const f of [audioPath, videoPath]) {
+          try {
+            if (existsSync(f)) unlinkSync(f);
+          } catch { /* ignore */ }
+        }
+      },
+    };
   }
 
   private async mediaDetail(apiId: string): Promise<{ media_url?: string; media_type?: string }> {
@@ -139,11 +150,18 @@ export class YtDlpMediaProvider implements MediaProvider {
           `Cause: ${msg.slice(0, 400)}`,
       );
     }
-    const { readdirSync } = await import("node:fs");
+    const { readdirSync, unlinkSync, existsSync } = await import("node:fs");
     const hits = readdirSync(workDir).filter((f) => f.startsWith(safe + "."));
     const audioPath = hits.includes(`${safe}.mp3`) ? join(workDir, `${safe}.mp3`) : hits.length > 0 ? join(workDir, hits.sort().pop()!) : null;
     if (!audioPath) throw new Error(`yt-dlp produced no audio file for ${reelUrl} in ${workDir}`);
-    return { audioPath, cleanup: async () => {} };
+    return {
+      audioPath,
+      cleanup: async () => {
+        try {
+          if (existsSync(audioPath)) unlinkSync(audioPath);
+        } catch { /* transient file; ignore */ }
+      },
+    };
   }
 }
 function extOf(p: string): string {

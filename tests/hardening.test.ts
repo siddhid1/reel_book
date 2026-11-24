@@ -6,7 +6,10 @@ import { getDb } from "../src/db/client.js";
 import { creatorRepo, reelRepo } from "../src/db/repositories.js";
 import { syncCreator } from "../src/sync/service.js";
 import { reprocessReels } from "../src/queue/processor.js";
+import { processPendingReels } from "../src/queue/processor.js";
 import { MockFormattingProvider } from "../src/formatting/providers.js";
+import { MockMediaProvider } from "../src/media/provider.js";
+import { MockTranscriptionProvider } from "../src/transcription/providers.js";
 import { renderWithTemplate, writeDefaultTemplate } from "../src/markdown/template.js";
 import { writeCreatorMetadata } from "../src/creator/metadata.js";
 import { fetchWithRetry } from "../src/utils/retry.js";
@@ -83,8 +86,7 @@ describe("configurable template + metadata sidecar", () => {
   });
 });
 
-describe("fetchWithRetry", () => {
-  it("retries 503 then succeeds; throws immediately on 400", async () => {
+describe("fetchWithRetry", () => {  it("retries 503 then succeeds; throws immediately on 400", async () => {
     const orig = globalThis.fetch;
     let n = 0;
     (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () => {
@@ -105,5 +107,26 @@ describe("fetchWithRetry", () => {
     } finally {
       globalThis.fetch = orig;
     }
+  });
+});
+
+describe("batch limit (maxReels)", () => {
+  it("processes at most N pending reels per run, rest resume later", async () => {
+    const root = mkdtempSync(join(tmpdir(), "reelbook-batch-"));
+    const db = getDb(join(root, "archive.db"));
+    const creator = await creatorRepo.upsert(db, "batch_user", "https://www.instagram.com/batch_user/");
+    for (const id of ["B1", "B2", "B3"]) {
+      reelRepo.insertIfNew(db, creator.id!, { instagramMediaId: id, reelUrl: `https://www.instagram.com/reel/${id}/` });
+    }
+    const run = await processPendingReels({
+      db, archiveRoot: root, creatorId: creator.id!, username: "batch_user",
+      media: new MockMediaProvider(),
+      transcriber: new MockTranscriptionProvider(),
+      formatter: new MockFormattingProvider(),
+      workDir: join(root, "work"), maxReels: 2,
+    });
+    expect(run.processed).toBe(2);
+    expect(reelRepo.pendingForCreator(db, creator.id!).length).toBe(1);
+    expect(reelRepo.pendingForCreator(db, creator.id!)[0]!.instagramMediaId).toBe("B3");
   });
 });
