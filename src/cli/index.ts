@@ -8,7 +8,7 @@ import { InstagramGraphDiscoveryProvider } from "../discovery/graph.js";
 import { commitArchive, ensureArchiveRepo } from "../markdown/git.js";
 import { runAllOnce, startScheduler } from "../sync/scheduler.js";
 import { GeminiFormattingProvider, MockFormattingProvider } from "../formatting/providers.js";
-import { GraphMediaProvider, LocalFileMediaProvider, MockMediaProvider } from "../media/provider.js";
+import { GraphMediaProvider, LocalFileMediaProvider, MockMediaProvider, YtDlpMediaProvider } from "../media/provider.js";
 import { processPendingReels, reprocessReels } from "../queue/processor.js";
 import { syncCreator } from "../sync/service.js";
 import { GeminiTranscriptionProvider, LocalWhisperProvider, MockTranscriptionProvider } from "../transcription/providers.js";
@@ -60,7 +60,7 @@ program.command("sync <username>")
   .option("--formatter <kind>", "mock|gemini", "mock")
   .option("--discovery <kind>", "manual|graph", "manual")
   .option("--ig-user-id <id>", "IG-scoped user id (for --discovery graph)")
-  .option("--media <kind>", "auto|local|graph|mock (auto: media-map > graph > mock)", "auto")
+  .option("--media <kind>", "auto|local|graph|ytdlp|mock (auto: media-map > graph > mock; ytdlp is explicit opt-in only)", "auto")
   .option("--full", "Ignore checkpoint: full historical rescan", false)
   .option("--commit", "Git-commit new markdown docs in the archive", false)
   .action(async (username: string, opts: { reels?: string; mediaMap?: string; transcriber: string; formatter: string; discovery: string; igUserId?: string; media: string; full: boolean; commit: boolean }) => {
@@ -83,8 +83,10 @@ program.command("sync <username>")
     console.log(`Discovery: ${stats.discovered} found, ${stats.added} new, ${stats.skipped} already known`);
     const mediaMap = opts.mediaMap ? readJsonFile<Record<string, string>>(opts.mediaMap, "--media-map") : {};
     const mediaKind = opts.media === "auto" ? (Object.keys(mediaMap).length > 0 ? "local" : opts.discovery === "graph" ? "graph" : "mock") : opts.media;
+    if (mediaKind === "ytdlp") console.log("NOTE: --media ytdlp downloads outside Instagram's official APIs (opt-in via ALLOW_UNOFFICIAL_DOWNLOAD=1). Use only for content you have the right to archive.");
     const media = mediaKind === "local" ? new LocalFileMediaProvider(mediaMap)
       : mediaKind === "graph" ? new GraphMediaProvider(igId, config.graphAccessToken)
+      : mediaKind === "ytdlp" ? new YtDlpMediaProvider()
       : new MockMediaProvider();
     const { processed, failed } = await processPendingReels({
       db, archiveRoot: config.archiveRoot, creatorId: creator.id!, username: creator.username!,
@@ -156,6 +158,26 @@ program.command("schedule")
     }
     console.log(`Scheduler started: every ${sopts.intervalMin} min. Ctrl+C to stop.`);
     startScheduler(db, config, sopts);
+  });
+
+program.command("reset-reel <username> <mediaId>")
+  .description("Clear a reel's transcripts + markdown so it can be redone (e.g. redo a mock run with real media)")
+  .option("--delete-file", "Also delete the generated markdown file", false)
+  .action(async (username: string, mediaId: string, opts: { deleteFile: boolean }) => {
+    const { db } = ctx();
+    const creator = creatorRepo.getByUsername(db, normalizeCreator(username).username);
+    if (!creator?.id) throw new Error("Unknown creator. Run add-creator first.");
+    const reel = reelRepo.list(db, creator.id).find((r) => r.instagramMediaId === mediaId);
+    if (!reel) throw new Error(`No reel ${mediaId} for @${username}`);
+    if (opts.deleteFile && reel.markdownPath) {
+      const { unlinkSync, existsSync } = await import("node:fs");
+      if (existsSync(reel.markdownPath as string)) unlinkSync(reel.markdownPath as string);
+    }
+    reelRepo.update(db, reel.id, {
+      rawTranscript: null, formattedBody: null, generatedHeading: null,
+      markdownPath: null, processingStatus: "QUEUED", lastError: null, retryCount: 0,
+    });
+    console.log(`Reset ${mediaId} -> QUEUED (raw + formatted + markdown cleared)`);
   });
 
 program.command("reprocess <username>")

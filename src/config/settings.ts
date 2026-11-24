@@ -16,6 +16,8 @@ export interface AppConfig {
   graphIgUserId: string;
   archiveGitAutocommit: boolean;
   archiveTemplatePath: string;
+  allowUnofficialDownload: boolean;
+  ytdlpCookiesFile: string;
 }
 
 export function loadConfig(): AppConfig {
@@ -31,6 +33,8 @@ export function loadConfig(): AppConfig {
     graphIgUserId: req("GRAPH_IG_USER_ID", ""),
     archiveGitAutocommit: req("ARCHIVE_GIT_AUTOCOMMIT", "false").toLowerCase() === "true",
     archiveTemplatePath: req("ARCHIVE_TEMPLATE_PATH", ""),
+    allowUnofficialDownload: req("ALLOW_UNOFFICIAL_DOWNLOAD", "0") === "1",
+    ytdlpCookiesFile: req("YTDLP_COOKIES_FILE", ""),
   };
 }
 

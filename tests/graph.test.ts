@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InstagramGraphDiscoveryProvider } from "../src/discovery/graph.js";
+import { YtDlpMediaProvider } from "../src/media/provider.js";
 
 function mockFetch(pages: unknown[]) {
   let i = 0;
@@ -38,5 +39,14 @@ describe("InstagramGraphDiscoveryProvider", () => {
     const bad = (async () => ({ ok: false, status: 400, text: async () => "OAuthException", json: async () => ({}) })) as unknown as typeof fetch;
     const p = new InstagramGraphDiscoveryProvider("ME", "BAD", bad);
     await expect(p.discoverReels("x")).rejects.toThrow(/Graph API failed/);
+  });
+});
+
+describe("YtDlpMediaProvider opt-in gate", () => {
+  it("refuses to construct without explicit opt-in", () => {
+    expect(() => new YtDlpMediaProvider(false)).toThrow(/opt-in.*ALLOW_UNOFFICIAL_DOWNLOAD/);
+  });
+  it("constructs when opted in (no network touched)", () => {
+    expect(new YtDlpMediaProvider(true).name).toBe("ytdlp");
   });
 });

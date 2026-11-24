@@ -6,7 +6,7 @@ import { creatorRepo } from "../db/repositories.js";
 import { normalizeCreator, ManualDiscoveryProvider } from "../discovery/manual.js";
 import { InstagramGraphDiscoveryProvider } from "../discovery/graph.js";
 import { GeminiFormattingProvider, MockFormattingProvider } from "../formatting/providers.js";
-import { GraphMediaProvider, LocalFileMediaProvider, MockMediaProvider } from "../media/provider.js";
+import { GraphMediaProvider, LocalFileMediaProvider, MockMediaProvider, YtDlpMediaProvider } from "../media/provider.js";
 import { commitArchive } from "../markdown/git.js";
 import { processPendingReels } from "../queue/processor.js";
 import { syncCreator } from "./service.js";
@@ -58,6 +58,7 @@ function buildMedia(config: AppConfig, username: string) {
     } catch { /* fall through to global/mock */ }
   }
   if (config.graphIgUserId && config.graphAccessToken) return new GraphMediaProvider(config.graphIgUserId, config.graphAccessToken);
+  if (config.allowUnofficialDownload) return new YtDlpMediaProvider();
   return new MockMediaProvider();
 }
 

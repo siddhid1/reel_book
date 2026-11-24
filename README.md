@@ -56,6 +56,17 @@ pnpm dev sync creator_username --discovery graph --ig-user-id <IG_SCOPED_ID> --t
 
 Requires `ffmpeg` for video→audio extraction. `--media local|graph|mock` overrides the auto choice.
 
+### Direct URL download (opt-in)
+
+Paste a reel URL → real transcript, no files needed — but explicitly opt-in, because it fetches media outside Instagram's official APIs (may violate their Terms; use only for content you have the right to archive):
+
+```bash
+# in .env: ALLOW_UNOFFICIAL_DOWNLOAD=1
+pnpm dev sync creator_username --reels reels.json --media ytdlp --transcriber gemini --formatter gemini --commit
+```
+
+If Instagram demands login, export a `cookies.txt` from your browser and set `YTDLP_COOKIES_FILE`. The default pipeline (`auto`/`mock`/`local`/`graph`) never touches this path.
+
 ### Reprocess after a prompt change (no re-transcribe)
 
 ```bash

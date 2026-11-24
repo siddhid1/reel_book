@@ -97,6 +97,55 @@ function extOfUrl(u: string): string {
   const m = u.split("?")[0]!.match(/(\.[a-z0-9]+)$/i);
   return m?.[1] ?? ".mp4";
 }
+
+/**
+ * YtDlpMediaProvider — downloads reel audio via yt-dlp, then transcribes.
+ *
+ * OPT-IN ONLY (gated by ALLOW_UNOFFICIAL_DOWNLOAD=1): yt-dlp fetches media
+ * outside Instagram's official APIs, which may violate Instagram's Terms of
+ * Use. Only enable for content you have the right to archive (e.g. a
+ * creator's own reels with permission), and prefer official/creator-provided
+ * media whenever available. Nothing in the default pipeline uses this.
+ */
+export class YtDlpMediaProvider implements MediaProvider {
+  readonly name = "ytdlp";
+  constructor(
+    private allowUnofficial = process.env.ALLOW_UNOFFICIAL_DOWNLOAD === "1",
+    private cookiesFile = process.env.YTDLP_COOKIES_FILE ?? "",
+  ) {
+    if (!allowUnofficial) {
+      throw new Error(
+        "YtDlpMediaProvider is opt-in: set ALLOW_UNOFFICIAL_DOWNLOAD=1 in .env to enable it. " +
+          "Note: downloading via yt-dlp works outside Instagram's official APIs and may violate their Terms of Use — " +
+          "only use it for content you have the right to archive.",
+      );
+    }
+  }
+
+  async fetchAudio(reelUrl: string, workDir: string, mediaId?: string) {
+    mkdirSync(workDir, { recursive: true });
+    const code = reelUrl.match(/instagram\.com\/(?:reel|p|reels)\/([A-Za-z0-9_-]+)/)?.[1] ?? mediaId ?? "audio";
+    const safe = code.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 64);
+    const outTpl = join(workDir, `${safe}.%(ext)s`);
+    const args = ["--no-playlist", "--no-warnings", "-x", "--audio-format", "mp3", "--audio-quality", "5", "-o", outTpl, reelUrl];
+    if (this.cookiesFile) args.unshift("--cookies", this.cookiesFile);
+    try {
+      await execFileAsync("yt-dlp", args, { timeout: 300_000 });
+    } catch (err) {
+      const msg = (err as Error).message;
+      throw new Error(
+        `yt-dlp download failed for ${reelUrl}. ` +
+          (this.cookiesFile ? "" : "If Instagram asks for login, export a cookies.txt and set YTDLP_COOKIES_FILE. ") +
+          `Cause: ${msg.slice(0, 400)}`,
+      );
+    }
+    const { readdirSync } = await import("node:fs");
+    const hits = readdirSync(workDir).filter((f) => f.startsWith(safe + "."));
+    const audioPath = hits.includes(`${safe}.mp3`) ? join(workDir, `${safe}.mp3`) : hits.length > 0 ? join(workDir, hits.sort().pop()!) : null;
+    if (!audioPath) throw new Error(`yt-dlp produced no audio file for ${reelUrl} in ${workDir}`);
+    return { audioPath, cleanup: async () => {} };
+  }
+}
 function extOf(p: string): string {
   const m = basename(p).match(/(\.[a-z0-9]+)$/i);
   return m?.[1] ?? ".mp3";

@@ -20,6 +20,8 @@ function testConfig(root: string): AppConfig {
     graphIgUserId: "",
     archiveGitAutocommit: false,
     archiveTemplatePath: "",
+    allowUnofficialDownload: false,
+    ytdlpCookiesFile: "",
   };
 }
 
