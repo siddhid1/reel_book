@@ -130,3 +130,15 @@ describe("batch limit (maxReels)", () => {
     expect(reelRepo.pendingForCreator(db, creator.id!)[0]!.instagramMediaId).toBe("B3");
   });
 });
+
+describe("verbatim formatter (no AI)", () => {
+  it("preserves words exactly, derives heading from first sentence", async () => {
+    const { VerbatimFormattingProvider } = await import("../src/formatting/providers.js");
+    const f = new VerbatimFormattingProvider();
+    const out = await f.format({ rawTranscript: "Hello world. Second  sentence   here.\n\nThird para." });
+    expect(out.heading).toBe("Hello world.");
+    expect(out.markdownBody).toBe("Hello world. Second sentence here.\n\nThird para.");
+    const empty = await f.format({ rawTranscript: "   " });
+    expect(empty.heading).toBe("Untitled Reel");
+  });
+});

@@ -7,7 +7,7 @@ import { normalizeCreator, ManualDiscoveryProvider } from "../discovery/manual.j
 import { InstagramGraphDiscoveryProvider } from "../discovery/graph.js";
 import { commitArchive, ensureArchiveRepo } from "../markdown/git.js";
 import { runAllOnce, startScheduler } from "../sync/scheduler.js";
-import { GeminiFormattingProvider, MockFormattingProvider } from "../formatting/providers.js";
+import { GeminiFormattingProvider, MockFormattingProvider, VerbatimFormattingProvider } from "../formatting/providers.js";
 import { OllamaFormattingProvider } from "../formatting/ollama.js";
 import { GraphMediaProvider, LocalFileMediaProvider, MockMediaProvider, YtDlpMediaProvider } from "../media/provider.js";
 import { processPendingReels, reprocessReels } from "../queue/processor.js";
@@ -35,6 +35,7 @@ function buildTranscriber(kind: string, model?: string) {
 }
 function buildFormatter(kind: string, model?: string) {
   if (kind === "mock") return new MockFormattingProvider();
+  if (kind === "verbatim") return new VerbatimFormattingProvider();
   if (kind === "ollama") return new OllamaFormattingProvider(model || process.env.OLLAMA_FORMAT_MODEL);
   const cfg = loadConfig();
   return new GeminiFormattingProvider(cfg.geminiApiKey || undefined, model || cfg.geminiFormatModel);
@@ -63,7 +64,7 @@ program.command("sync <username>")
   .option("--reels <file>", "JSON file with reel URLs: {\"urls\": [...], \"meta\": {url: {publishedAt, caption}}}")
   .option("--media-map <file>", "JSON map reel shortcode/URL -> local media file (creator-provided)")
   .option("--transcriber <kind>", "mock|local|gemini", "mock")
-  .option("--formatter <kind>", "mock|gemini|ollama (ollama = free local LLM)", "mock")
+  .option("--formatter <kind>", "mock|gemini|ollama|verbatim (verbatim = no AI, original transcript as-is)", "mock")
   .option("--discovery <kind>", "manual|graph", "manual")
   .option("--ig-user-id <id>", "IG-scoped user id (for --discovery graph)")
   .option("--media <kind>", "auto|local|graph|ytdlp|mock (auto: media-map > graph > mock; ytdlp is explicit opt-in only)", "auto")
@@ -120,7 +121,7 @@ program.command("retry <username>")
   .description("Re-run failed/pending reels without re-doing successful stages")
   .option("--media-map <file>", "JSON map reel shortcode/URL -> local media file")
   .option("--transcriber <kind>", "mock|local|gemini", "mock")
-  .option("--formatter <kind>", "mock|gemini|ollama (ollama = free local LLM)", "mock")
+  .option("--formatter <kind>", "mock|gemini|ollama|verbatim (verbatim = no AI, original transcript as-is)", "mock")
   .option("--limit <n>", "Process at most N pending reels this run", "")
   .option("--transcribe-model <m>", "Override GEMINI_TRANSCRIBE_MODEL for this run", "")
   .option("--format-model <m>", "Override GEMINI_FORMAT_MODEL for this run", "")
@@ -153,7 +154,7 @@ program.command("schedule")
   .description("Run incremental sync for ALL creators on an interval (reads inbox files from <archive>/config/discovery/)")
   .option("--interval-min <n>", "Minutes between runs", "60")
   .option("--transcriber <kind>", "mock|local|gemini", "mock")
-  .option("--formatter <kind>", "mock|gemini|ollama (ollama = free local LLM)", "mock")
+  .option("--formatter <kind>", "mock|gemini|ollama|verbatim (verbatim = no AI, original transcript as-is)", "mock")
   .option("--commit", "Git-commit new docs after each run", true)
   .option("--once", "Run once for all creators and exit", false)
   .action(async (opts: { intervalMin: string; transcriber: string; formatter: string; commit: boolean; once: boolean }) => {
@@ -196,7 +197,7 @@ program.command("reset-reel <username> <mediaId>")
 
 program.command("reprocess <username>")
   .description("Re-run AI formatting for reels with raw transcripts (e.g. after a prompt change). Never re-transcribes.")
-  .option("--formatter <kind>", "mock|gemini|ollama (ollama = free local LLM)", "mock")
+  .option("--formatter <kind>", "mock|gemini|ollama|verbatim (verbatim = no AI, original transcript as-is)", "mock")
   .option("--format-model <m>", "Override GEMINI_FORMAT_MODEL for this run", "")
   .option("--force", "Reformat even COMPLETED reels", false)
   .option("--limit <n>", "Max reels", "100")

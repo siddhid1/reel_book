@@ -61,3 +61,22 @@ export class MockFormattingProvider implements FormattingProvider {
     return { heading: first.trim() || "Untitled Reel", markdownBody: input.rawTranscript.trim() + "\n" };
   }
 }
+
+/**
+ * VerbatimFormattingProvider — NO AI involved. Stores the original transcript
+ * as-is with a deterministic heading (first sentence) and light paragraph
+ * normalization. The markdown template still adds frontmatter + Original
+ * Transcript section, so docs stay traceable and consistent.
+ */
+export class VerbatimFormattingProvider implements FormattingProvider {
+  readonly name = "verbatim";
+  async format(input: { rawTranscript: string }): Promise<FormattedContent> {
+    const raw = input.rawTranscript.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
+    if (!raw) return { heading: "Untitled Reel", markdownBody: "" };
+    const firstSentence = raw.split(/(?<=[.!?])\s+/)[0] ?? raw;
+    const heading = firstSentence.slice(0, 80).trim() || "Untitled Reel";
+    // Normalize whitespace runs into paragraphs; never alter words.
+    const body = raw.split(/\n\s*\n+/).map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n\n");
+    return { heading, markdownBody: body };
+  }
+}
