@@ -1,147 +1,153 @@
 # Reel Book — Instagram Reel Transcription & Knowledge Archive
 
-Local-first pipeline: discover reels → extract audio → transcribe → AI-format with Gemini → Markdown archive (git-friendly) with SQLite checkpoints for incremental sync.
+Turn Instagram Reels into a structured, searchable, version-controlled knowledge base. Each reel becomes one Markdown document — transcribed, formatted, and archived by creator — with SQLite checkpoints so incremental syncs only ever process what's new.
+
+```
+Reel URL → audio → transcript → formatted doc → creators/<user>/YYYY/MM/*.md
+```
+
+## Features
+
+- **Per-reel pipeline** — `DISCOVERED → QUEUED → TRANSCRIBING → FORMATTING → COMPLETED`, persisting after every stage. A failed run resumes where it stopped; nothing is ever transcribed or billed twice.
+- **Incremental sync** — per-creator checkpoints (`last_successful_sync_at` vs `last_seen_published_at`), overlap window, ID-based dedup. Re-runs process only new reels.
+- **Pluggable providers** — discovery, media, transcription, and formatting are all interfaces. Swap mock ↔ local ↔ cloud without touching the pipeline.
+- **Free local stack** — whisper.cpp transcription + Ollama formatting: $0, no quotas, fully offline except media download.
+- **Cloud stack** — Gemini audio transcription + structured-JSON formatting.
+- **Git-native archive** — optional auto-commit, frontmatter traceability (`instagram_id`, `reel_url`), raw transcript preserved in every doc + DB.
+- **Bulk-ready** — `--limit` batches, per-reel cleanup, retries with backoff, `doctor` pre-flight checks.
 
 ## Quick start
 
 ```bash
 pnpm install
-cp .env.example .env
-# Get key at https://aistudio.google.com/apikey and put in .env as GEMINI_API_KEY
-# (Google AI Pro subscription alone is not enough — the app calls the Generative Language API)
+cp .env.example .env   # then fill in keys (see Configuration)
 pnpm db:migrate
 pnpm test
+pnpm dev doctor        # verifies ffmpeg, whisper, API keys, archive, DB
 ```
 
-## Usage (M2 v1: manual/authorized discovery — no scraping)
+## Usage
 
-1. Register creator:
+**1. Register a creator**
+
 ```bash
 pnpm dev add-creator https://www.instagram.com/creator_username/
 ```
 
-2. Prepare `reels.json` (creator-provided / authorized URLs):
+**2. Prepare reel URLs** (`url.txt` — one per line, or the JSON shape below; see `url.example.txt`)
+
 ```json
 {
-  "urls": ["https://www.instagram.com/reel/ABC123/", "https://www.instagram.com/reel/DEF456/"],
+  "urls": ["https://www.instagram.com/reel/ABC123/"],
   "meta": {
-    "https://www.instagram.com/reel/ABC123/": {"publishedAt": "2026-11-13T10:00:00Z", "caption": "optional caption"}
+    "https://www.instagram.com/reel/ABC123/": {
+      "publishedAt": "2026-11-13T10:00:00Z",
+      "caption": "optional caption"
+    }
   }
 }
 ```
 
-3. Optional `media-map.json` (shortcode or URL → local authorized media file):
-```json
-{ "ABC123": "/path/to/abc123.mp4", "https://www.instagram.com/reel/DEF456/": "/path/to/def.mp4" }
-```
-Requires `ffmpeg` for video→audio extraction. For offline smoke tests, omit media and use `--transcriber mock --formatter mock`.
-
-4. Sync + process (incremental; only new IDs processed):
-```bash
-pnpm dev sync creator_username --reels reels.json --media-map media-map.json --transcriber mock --formatter mock
-pnpm dev sync creator_username --reels reels.json --media-map media-map.json --transcriber gemini --formatter gemini
-pnpm dev retry creator_username --media-map media-map.json --transcriber gemini --formatter gemini
-pnpm dev status creator_username
-```
-
-Output: `instagram-archive/creators/<username>/YYYY/MM/<slug>.md` + `creators/<username>/metadata.json` + `instagram-archive/database/archive.db`.
-
-### Graph media downloads
-
-When discovered via `--discovery graph`, audio is fetched through the official API automatically (`--media auto` picks `graph`); no `--media-map` needed:
+**3. Sync + process** (incremental — only new IDs are processed)
 
 ```bash
-pnpm dev sync creator_username --discovery graph --ig-user-id <IG_SCOPED_ID> --transcriber gemini --formatter gemini --commit
+# Fully free: unofficial download + local whisper + local ollama, no AI-vendor calls
+pnpm dev sync creator_username --reels reels.json --media ytdlp --transcriber local --formatter ollama --limit 25 --commit
+
+# No-AI archiving: original transcript stored as-is (no LLM anywhere)
+pnpm dev sync creator_username --reels reels.json --media ytdlp --transcriber local --formatter verbatim --limit 25 --commit
+
+# Cloud quality: Gemini transcription + formatting
+pnpm dev sync creator_username --reels reels.json --media ytdlp --transcriber gemini --formatter gemini --limit 25 --commit
 ```
 
-Requires `ffmpeg` for video→audio extraction. `--media local|graph|mock` overrides the auto choice.
-
-### Direct URL download (opt-in)
-
-Paste a reel URL → real transcript, no files needed — but explicitly opt-in, because it fetches media outside Instagram's official APIs (may violate their Terms; use only for content you have the right to archive):
+**4. Operate**
 
 ```bash
-# in .env: ALLOW_UNOFFICIAL_DOWNLOAD=1
-pnpm dev sync creator_username --reels reels.json --media ytdlp --transcriber gemini --formatter gemini --commit
+pnpm dev status [username]            # sync state + pending reels
+pnpm dev retry username --limit 25    # resume failed/pending (stages never redo)
+pnpm dev sync username --full         # historical rescan (dedup keeps it safe)
+pnpm dev schedule --once --commit     # all creators, via inbox files (see below)
+pnpm dev reprocess username --formatter ollama --force   # reformat without re-transcribing
+pnpm dev reset-reel username ABC123 --delete-file        # redo one reel from scratch
+pnpm dev init-template                # write customizable markdown template
 ```
 
-If Instagram demands login, export a `cookies.txt` from your browser and set `YTDLP_COOKIES_FILE`. The default pipeline (`auto`/`mock`/`local`/`graph`) never touches this path.
+## Discovery options
 
-### Reprocess after a prompt change (no re-transcribe)
+| Mode | Flag | Notes |
+|---|---|---|
+| Manual URLs | `--reels reels.json` (default) | Creator-provided / authorized links. Always works. |
+| Official Graph API | `--discovery graph --ig-user-id <ID>` | Business/Creator accounts you control. Needs `GRAPH_ACCESS_TOKEN`. Arbitrary public profiles are **not** enumerable — an API limitation, not a bug. |
+| Scheduled inbox | `schedule --once` | Reads `<archive>/config/discovery/<username>.json` per creator. |
+| Profile listing | — | Not supported: Instagram blocks logged-out listing. Paste reel URLs, or export a browser `cookies.txt` (`YTDLP_COOKIES_FILE`) for login-gated content. |
+
+## Media options (`--media`)
+
+| Kind | Notes |
+|---|---|
+| `mock` | Placeholder audio for smoke tests. Default when nothing else applies. |
+| `local` | Your files via `--media-map '{"SHORTCODE": "/path/to.mp4"}'`. Never modified or deleted. |
+| `graph` | Official API downloads (used automatically with `--discovery graph`). |
+| `ytdlp` | **Explicit opt-in** (`ALLOW_UNOFFICIAL_DOWNLOAD=1`). Downloads outside Instagram's official APIs — use only for content you have the right to archive. |
+
+Downloaded originals are transient: converted to mp3, transcribed, then deleted. Only transcripts + markdown persist.
+
+## Transcription & formatting
+
+| Transcriber | Command | Cost |
+|---|---|---|
+| `local` | whisper.cpp (`whisper-cli` + `./models/ggml-base.bin`) | Free, offline |
+| `gemini` | `GEMINI_TRANSCRIBE_MODEL` (default `gemini-3.5-flash`) | Per-call billing past free tier |
+
+| Formatter | Command | Cost |
+|---|---|---|
+| `verbatim` | Original transcript as-is, deterministic heading | Free |
+| `ollama` | Local LLM (default `qwen2.5:7b-instruct`, needs `ollama serve`) | Free |
+| `gemini` | Structured-JSON formatting (`GEMINI_FORMAT_MODEL`) | Per-call billing past free tier |
+| `mock` | Placeholder for smoke tests | — |
+
+Swap models per run without touching `.env`: `--transcribe-model ... --format-model ...`.
+
+## Configuration (`.env`)
+
+| Key | Purpose |
+|---|---|
+| `GEMINI_API_KEY` | AI Studio key (a Pro subscription alone is not enough — the app calls the API) |
+| `GEMINI_FORMAT_MODEL` / `GEMINI_TRANSCRIBE_MODEL` | Model overrides (verified: `gemini-3.5-flash`; `2.5-flash` is retired for new users) |
+| `ARCHIVE_ROOT` / `DATABASE_PATH` / `SYNC_OVERLAP_DAYS` | Storage + sync behavior |
+| `ARCHIVE_TEMPLATE_PATH` | Custom markdown template (`init-template` to scaffold) |
+| `ARCHIVE_GIT_AUTOCOMMIT` | Commit docs after each run |
+| `ALLOW_UNOFFICIAL_DOWNLOAD` | `=1` enables `--media ytdlp` (opt-in, see Media) |
+| `YTDLP_COOKIES_FILE` | Login-gated content |
+| `GRAPH_ACCESS_TOKEN` / `GRAPH_IG_USER_ID` | Official API discovery |
+| `OLLAMA_FORMAT_MODEL` / `OLLAMA_BASE_URL` | Local formatting |
+
+## Output layout
+
+```
+instagram-archive/
+├── creators/<username>/YYYY/MM/<slug>.md   # one doc per reel + metadata.json
+├── config/discovery/<username>.json        # scheduler inbox (optional)
+├── config/template.md                      # custom template (optional)
+└── database/archive.db                     # creators, reels, sync_runs
+```
+
+Every doc carries frontmatter (`instagram_id`, `reel_url`, timestamps) plus the verbatim `## Original Transcript` — traceable without opening the DB. Filenames are slugified, collision-proof, and never overwritten.
+
+## Reliability guarantees
+
+- Dedup key is `instagram_media_id` (UNIQUE) — headings/captions/dates never used for identity.
+- `last_successful_sync_at` advances only after full paginated discovery succeeds.
+- Each stage persists before the next; retries resume from the first missing artifact.
+- One creator's failure never stops others; one reel's failure never stops the batch.
+
+## Development
 
 ```bash
-pnpm dev reprocess creator_username --formatter gemini --force --limit 10 --commit
+pnpm typecheck   # strict TS
+pnpm test        # vitest (20 tests: dedup, collisions, resume, checkpoints, retry, batching)
+pnpm build && pnpm start status
 ```
 
-Re-runs formatting for reels with raw transcripts and rewrites their markdown in place. Without `--force`, only unformatted/failed reels are touched.
-
-### Custom markdown template
-
-```bash
-pnpm dev init-template              # writes ./instagram-archive/config/template.md
-# set ARCHIVE_TEMPLATE_PATH=./instagram-archive/config/template.md in .env
-```
-
-Tokens: `{{title}} {{creator}} {{instagram_id}} {{reel_url}} {{published_at}} {{processed_at}} {{body}} {{raw_transcript}}`.
-
-### Pre-flight checks
-
-```bash
-pnpm dev doctor   # ffmpeg, whisper, API keys (masked), live Gemini probe, archive + DB
-```
-
-## Official Graph API discovery (optional)
-
-For Business/Creator accounts you have access to (token with `instagram_business_basic` scopes):
-
-```bash
-pnpm dev sync creator_username --discovery graph --ig-user-id <IG_SCOPED_ID> --transcriber gemini --formatter gemini
-```
-
-Set `GRAPH_ACCESS_TOKEN` / `GRAPH_IG_USER_ID` in `.env`. Arbitrary public profiles are NOT enumerable — that is an API limitation, not a bug; fall back to manual `reels.json`. Failures surface loudly, never as silent empty records.
-
-## Scheduling + git auto-commit + full rescan
-
-```bash
-# one-shot: sync all creators using inbox files at <archive>/config/discovery/<username>.json
-pnpm dev schedule --once --transcriber gemini --formatter gemini --commit
-
-# daemon: every 60 min (also runs immediately on start)
-pnpm dev schedule --interval-min 60 --transcriber gemini --formatter gemini --commit
-
-# commit-on-write for single-creator runs (or set ARCHIVE_GIT_AUTOCOMMIT=true)
-pnpm dev sync creator_username --reels reels.json --commit
-
-# full historical reconciliation (ignores checkpoint, dedup still by media ID)
-pnpm dev sync creator_username --reels reels.json --full
-
-# bulk in controlled batches of 25 (each run commits; resume anytime by re-running)
-pnpm dev sync creator_username --reels bulk.json --media ytdlp --transcriber gemini --formatter gemini --limit 25 --commit
-
-# if a model is overloaded, swap per run without touching .env
-pnpm dev sync creator_username --reels bulk.json --media ytdlp --transcriber gemini --formatter gemini --limit 25 --format-model gemini-3-flash-preview --commit
-```
-
-## Gemini notes (your Pro subscription)
-- Model defaults are `gemini-3.5-flash` for both formatting and transcription (verified working 2026-11-23; `gemini-2.5-flash` now returns 404 for new API users, `gemini-3.8-flash` was 503-overloaded). Override via `GEMINI_FORMAT_MODEL` / `GEMINI_TRANSCRIBE_MODEL`.
-- API calls retry 429/5xx with exponential backoff and log model + latency + size per call.
-- Transcription: `--transcriber gemini` sends audio with a strict verbatim prompt. Audio must be <20MB inline (reels are fine). For bulk/offline, install `ffmpeg` + `whisper.cpp` (`pnpm dev doctor` tells you what's missing) and use `--transcriber local`.
-- The subscription login itself is not enough — the app needs `GEMINI_API_KEY` from AI Studio, which you have configured.
-
-## Fully free pipeline (no billing): local Whisper + local Ollama
-
-```bash
-ollama serve                      # one-time per boot (background)
-ollama pull qwen2.5:7b-instruct   # one-time ~4.7GB download
-
-pnpm dev sync creator_username --reels bulk.json --media ytdlp --transcriber local --formatter ollama --limit 25 --commit
-```
-
-Transcription runs on whisper.cpp (`./models/ggml-base.bin`, CPU, unlimited), formatting on the local model — $0 and no API quotas anywhere. `pnpm dev doctor` reports ollama status. Quality is below Gemini flash, but every word is real; you can always `reprocess --formatter gemini` later for a polish pass on selected reels.
-
-## Guarantees
-
-- Dedup key is `instagram_media_id` (UNIQUE). Headings/captions/dates never used for identity.
-- `last_successful_sync_at` advances only after full paginated discovery succeeds; failures leave checkpoints untouched.
-- Each stage persists before the next: failed formatting retries from formatting (transcript reused); failed markdown retries from markdown.
-- Markdown files are never overwritten; collisions get `-<shortId>` suffixes. Frontmatter traces every doc to its reel URL + raw transcript preserved in-file and in DB.
+Stack: TypeScript + Node 26 · SQLite (better-sqlite3) + Drizzle · Commander CLI · Zod. No daemons, no external services required for the free stack.

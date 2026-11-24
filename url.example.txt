@@ -1,0 +1,12 @@
+{
+  "urls": [
+    "https://www.instagram.com/reel/ABC123/",
+    "https://www.instagram.com/example_creator/reel/XYZ789/"
+  ],
+  "meta": {
+    "https://www.instagram.com/reel/ABC123/": {
+      "publishedAt": "2026-11-13T10:00:00Z",
+      "caption": "optional caption"
+    }
+  }
+}
