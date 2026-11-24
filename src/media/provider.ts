@@ -16,7 +16,7 @@ export class LocalFileMediaProvider implements MediaProvider {
   constructor(private files: Record<string, string> = {}) {}
 
   async fetchAudio(reelUrl: string, workDir: string) {
-    const code = reelUrl.match(/instagram\.com\/(?:reel|p|reels)\/([A-Za-z0-9_-]+)/)?.[1] ?? reelUrl;
+    const code = reelUrl.match(/\/(?:reel|p|reels)\/([A-Za-z0-9_-]+)/)?.[1] ?? reelUrl;
     const src = this.files[reelUrl] ?? this.files[code ?? ""];
     if (!src || !existsSync(src)) {
       throw new Error(`No local media registered for ${reelUrl}. Provide creator-authorized file via --media-map.`);
@@ -59,7 +59,7 @@ export class GraphMediaProvider implements MediaProvider {
     mkdirSync(workDir, { recursive: true });
     let apiId = mediaId;
     if (!apiId) {
-      const code = reelUrl.match(/instagram\.com\/(?:reel|p|reels)\/([A-Za-z0-9_-]+)/)?.[1];
+      const code = reelUrl.match(/\/(?:reel|p|reels)\/([A-Za-z0-9_-]+)/)?.[1];
       if (!code) throw new Error(`GraphMediaProvider: cannot derive media id from ${reelUrl}; pass instagramMediaId`);
       apiId = await this.resolveByShortcode(code);
     }
@@ -135,7 +135,7 @@ export class YtDlpMediaProvider implements MediaProvider {
 
   async fetchAudio(reelUrl: string, workDir: string, mediaId?: string) {
     mkdirSync(workDir, { recursive: true });
-    const code = reelUrl.match(/instagram\.com\/(?:reel|p|reels)\/([A-Za-z0-9_-]+)/)?.[1] ?? mediaId ?? "audio";
+    const code = reelUrl.match(/\/(?:reel|p|reels)\/([A-Za-z0-9_-]+)/)?.[1] ?? mediaId ?? "audio";
     const safe = code.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 64);
     const outTpl = join(workDir, `${safe}.%(ext)s`);
     const args = ["--no-playlist", "--no-warnings", "-x", "--audio-format", "mp3", "--audio-quality", "5", "-o", outTpl, reelUrl];

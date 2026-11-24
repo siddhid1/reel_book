@@ -15,9 +15,9 @@ export function normalizeCreator(input: string): { username: string; profileUrl:
   return { username: s, profileUrl: `https://www.instagram.com/${s}/` };
 }
 
-/** Extract media shortcode from https://www.instagram.com/reel/<CODE>/ or /p/<CODE>/ */
+/** Extract media shortcode from /reel/<CODE>/, /<user>/reel/<CODE>/, or /p/<CODE>/ URLs. */
 export function shortcodeFromReelUrl(url: string): string | null {
-  const m = url.match(/instagram\.com\/(?:reel|p|reels)\/([A-Za-z0-9_-]+)/);
+  const m = url.match(/\/(?:reel|p|reels)\/([A-Za-z0-9_-]+)/);
   return m?.[1] ?? null;
 }
 

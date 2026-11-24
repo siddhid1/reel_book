@@ -17,6 +17,9 @@ describe("shortcodeFromReelUrl", () => {
   it("extracts reel codes", () => {
     expect(shortcodeFromReelUrl("https://www.instagram.com/reel/ABC123/")).toBe("ABC123");
     expect(shortcodeFromReelUrl("https://www.instagram.com/p/XYZ_9/")).toBe("XYZ_9");
+    expect(shortcodeFromReelUrl("https://www.instagram.com/pranavprakash_3/reel/DgDUhayoqUk/")).toBe("DgDUhayoqUk");
+    expect(shortcodeFromReelUrl("https://www.instagram.com/reel/Df7seEPITOl/?cnvx=abc&avpt=def")).toBe("Df7seEPITOl");
+    expect(shortcodeFromReelUrl("https://www.instagram.com/pranavprakash_3/?hl=en")).toBeNull();
   });
 });
 
